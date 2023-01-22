@@ -4,17 +4,14 @@ import requests
 import json
 import config
 
-def get_coordinates(city:str, state:str, country:str):
+def get_coordinates(city:str, state:str, country:str) -> dict:
     api_url = f'https://api.api-ninjas.com/v1/geocoding?city={city}&country={country}'
     response = requests.get(api_url, headers={'X-Api-Key': config.api_key})
 
     if response.status_code == requests.codes.ok:
         coord_all = json.loads(response.text)
-        coord_filtered = []
 
-        for item in coord_all:
-            if item['state'] == state:
-                coord_filtered.append(item)
+        coord_filtered = [item for item in coord_all if item['state'] == state]
 
         num_elements = len(coord_filtered)
 
@@ -27,7 +24,7 @@ def get_coordinates(city:str, state:str, country:str):
     else:
         raise Exception('Error:', response.status_code, response.text)
 
-def get_grid(latitude:float, longitude:float):
+def get_gridbox_properties(latitude:float, longitude:float) -> dict:
     api_url = f'https://api.weather.gov/points/{latitude},{longitude}'
     response = requests.get(api_url, headers={'User-Agent': config.user_agent})
 
@@ -36,7 +33,7 @@ def get_grid(latitude:float, longitude:float):
     else:
         raise Exception('Error:', response.status_code, response.text)
 
-def get_current(api_url:str):
+def get_current_weather(api_url:str) -> pd.DataFrame:
     response = requests.get(api_url, headers={'User-Agent': config.user_agent})
 
     if response.status_code == requests.codes.ok:
@@ -50,13 +47,13 @@ def get_current(api_url:str):
     windSpeed = []
     windChill = []
 
-    for item in stations:
+    for item in stations: #Todo optimize maybe with aiohttp library
         station_url = item['id'] + '/observations/latest'
         reponse_station = requests.get(station_url, headers={'User-Agent': config.user_agent})
 
         if reponse_station.status_code == requests.codes.ok:
             station_data = json.loads(reponse_station.text)['properties']
-        else:
+        else: #ToDo log unreachable stations
             continue
 
         name.append(item['properties']['name'])
@@ -74,7 +71,7 @@ def get_current(api_url:str):
 
     return df_current
 
-def get_forecast(api_url:str):
+def get_forecast(api_url:str) -> list:
     response = requests.get(api_url, headers={'User-Agent': config.user_agent})
 
     if response.status_code == requests.codes.ok:
@@ -82,34 +79,21 @@ def get_forecast(api_url:str):
     else:
         raise Exception('Error:', response.status_code, response.text)
 
-if __name__ == "__main__":
-    city = 'Boston'
-    state = 'Massachusetts'
-    country = 'US'
+def fahrenheit_to_celsius(temperature:float) -> float:
+    return (temperature - 32) * 1.8
 
-    coordinates = get_coordinates(city, state, country)
-
-    grid = get_grid(round(coordinates.get('latitude'),4), round(coordinates.get('longitude'),4))
-
-    #Current weather
-    current = get_current(grid['observationStations'])
-
-    pd.set_option('display.max_columns', None)
-    print(current)
-
-    #Forecast following 7 days
-    forecast = get_forecast(grid['forecast'])
-
+def plot_weather_forecast(forecast:list):
     name = []
     temp_daytime = []
     temp_night = []
 
     for item in forecast:
         if item['isDaytime']:
+            #We only take name once, as we always have 1-1 daytime and night entries
             name.append(item['name'])
-            temp_daytime.append((item['temperature'] - 32) * 1.8)
+            temp_daytime.append(fahrenheit_to_celsius(item['temperature']))
         else:
-            temp_night.append((item['temperature'] - 32) * 1.8)
+            temp_night.append(fahrenheit_to_celsius(item['temperature']))
 
     plt.plot(name, temp_daytime, label='Daytime', color='orange')
     plt.plot(name, temp_night, label='Night', color='blue')
@@ -119,3 +103,24 @@ if __name__ == "__main__":
     plt.xticks(rotation=45)
     plt.legend()
     plt.show()
+
+
+if __name__ == "__main__":
+    city = input('Enter City: ') #'Boston'
+    state = input('Enter State: ') #'Massachusetts'
+    country = input('Enter Country: ')#'US'
+
+    coordinates = get_coordinates(city, state, country)
+
+    gridProperties = get_gridbox_properties(round(coordinates.get('latitude'),4), round(coordinates.get('longitude'),4))
+
+    #Current weather
+    currentWeather = get_current_weather(gridProperties['observationStations'])
+
+    pd.set_option('display.max_columns', None)
+    print(currentWeather)
+
+    #Forecast following 7 days
+    forecast = get_forecast(gridProperties['forecast'])
+
+    plot_weather_forecast(forecast)
